@@ -3,6 +3,7 @@
 //! ```no_run
 //! # async fn example() -> searchcraft::error::Result<()> {
 //! use searchcraft::SearchcraftClient;
+//! use searchcraft::search::query::QueryBuilder;
 //!
 //! let client = SearchcraftClient::new(
 //!     "https://my-instance.searchcraft.io",
@@ -10,7 +11,8 @@
 //!     None::<String>,
 //! )?;
 //!
-//! // Future API modules (search, indices, …) will hang off `client`.
+//! let request = QueryBuilder::fuzzy().term("laptop").limit(10).build_request();
+//! let response = client.search_index::<serde_json::Value>("products", &request).await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -24,8 +26,7 @@ use crate::transport::HttpTransport;
 /// Construct via [`SearchcraftClient::new`] or
 /// [`SearchcraftClient::from_config`].
 ///
-/// API-specific methods will be added by subsequent tasks (search,
-/// indices, federations, etc.).
+/// Search methods are provided via the [`search`](crate::search) module.
 #[derive(Debug, Clone)]
 pub struct SearchcraftClient {
     pub(crate) transport: HttpTransport,
