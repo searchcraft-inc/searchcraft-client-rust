@@ -5,10 +5,13 @@ edition = "2021"
 rust-version = "1.75"
 description = "Async Rust client for the Searchcraft search API"
 license = "Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/searchcraft"
 repository = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 homepage = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 keywords = ["searchcraft", "search", "api-client", "full-text-search", "sdk"]
 categories = ["api-bindings", "web-programming::http-client"]
+exclude = ["target/", ".git/"]
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
