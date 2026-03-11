@@ -1,0 +1,28 @@
+[package]
+name = "searchcraft"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Async Rust client for the Searchcraft search API"
+license = "Apache-2.0"
+repository = "https://github.com/searchcraft-inc/searchcraft-client-rust"
+homepage = "https://github.com/searchcraft-inc/searchcraft-client-rust"
+keywords = ["searchcraft", "search", "api-client", "full-text-search", "sdk"]
+categories = ["api-bindings", "web-programming::http-client"]
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+url = "2"
+secrecy = { version = "0.10", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
+
+[features]
+default = ["rustls"]
+rustls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls"]
