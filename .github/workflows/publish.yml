@@ -1,0 +1,111 @@
+name: Publish to crates.io
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create git tags and GitHub releases
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Get crate version
+        id: crate
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "searchcraft") | .version')
+          if [ -z "$VERSION" ]; then
+            echo "Could not read the version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if version is already published
+        id: check
+        run: |
+          VERSION="${{ steps.crate.outputs.version }}"
+          # 404 covers both "crate not published yet" and "this version not
+          # published yet"; anything else means we could not get a clear answer
+          # and should stop rather than guess.
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: searchcraft-release (https://github.com/${{ github.repository }})' \
+            "https://crates.io/api/v1/crates/searchcraft/${VERSION}")
+          case "$STATUS" in
+            200)
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "Version ${VERSION} already published — skipping."
+              ;;
+            404)
+              echo "skip=false" >> $GITHUB_OUTPUT
+              echo "Version ${VERSION} is not on crates.io — publishing."
+              ;;
+            *)
+              echo "Unexpected status ${STATUS} from crates.io" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Format check
+        if: steps.check.outputs.skip == 'false'
+        run: cargo fmt --all --check
+
+      - name: Lint
+        if: steps.check.outputs.skip == 'false'
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        if: steps.check.outputs.skip == 'false'
+        run: cargo test --all-features --locked
+
+      - name: Documentation
+        if: steps.check.outputs.skip == 'false'
+        # docs.rs builds this after publishing, so a warning here would become a
+        # broken docs build that cannot be fixed without a new release.
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features --locked
+
+      - name: Publish to crates.io
+        if: steps.check.outputs.skip == 'false'
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Extract changelog notes
+        if: steps.check.outputs.skip == 'false'
+        id: notes
+        run: |
+          VERSION="${{ steps.crate.outputs.version }}"
+          if [ -f CHANGELOG.md ]; then
+            # Take everything under this version's heading up to the next one,
+            # then trim only the leading and trailing blank lines. Internal
+            # blank lines have to survive or the markdown renders as one blob.
+            NOTES=$(awk "/^## ${VERSION}/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md \
+              | sed -e '/./,$!d' | tac | sed -e '/./,$!d' | tac)
+          else
+            NOTES=""
+          fi
+          if [ -z "$NOTES" ]; then
+            echo "No CHANGELOG.md entry found for ${VERSION}; the release body will be empty." >&2
+          fi
+          printf 'notes<<EOF\n%s\nEOF\n' "$NOTES" >> $GITHUB_OUTPUT
+
+      - name: Create git tag and GitHub release
+        if: steps.check.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.crate.outputs.version }}
+          name: v${{ steps.crate.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          make_latest: true
