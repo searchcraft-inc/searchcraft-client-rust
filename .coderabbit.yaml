@@ -1,0 +1,230 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+
+reviews:
+  profile: "chill"
+  poem: false
+  high_level_summary: true
+  collapse_walkthrough: false
+  request_changes_workflow: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "development"
+
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
+      - "Version"
+      - "version"
+      - "Release"
+      - "release"
+
+  path_filters:
+    - "!target/**"
+    # Mechanical and enormous; dependency changes are reviewable in Cargo.toml,
+    # and the secret scanners still cover this file.
+    - "!Cargo.lock"
+
+  path_instructions:
+    - path: "src/admin/**/*.rs"
+      instructions: >
+        These are endpoint wrappers. Review for:
+        every response goes through transport.request_data(), which unwraps the
+        engine's `{ status, data }` envelope — request() returns the whole
+        envelope and is almost always a bug at this layer;
+        the Operation passed matches the key the engine actually requires
+        (Operation::Read, Operation::Write, or Operation::Admin);
+        the HTTP method and path match the engine route, noting that index
+        create is POST /index while PUT /index/:index is a replace that 404s on
+        a missing index;
+        request bodies match the engine's payload shape, including wrappers such
+        as `{ index: ... }` for create and replace but a flat body for PATCH;
+        every public method has a doc comment naming the route and an
+        `# Errors` section stating which key is required;
+        no unwrap(), expect(), panic!(), or indexing that can panic.
+
+    - path: "src/**/types.rs"
+      instructions: >
+        These are wire types. Review for:
+        field names, types, and nullability match the engine exactly — a field
+        the engine can send as null must be Option, or deserialization fails for
+        the whole response;
+        #[serde(skip_serializing_if = "Option::is_none")] on optional request
+        fields so omitted values are not sent as null;
+        forward compatibility — enums that mirror an engine vocabulary that can
+        grow should tolerate unknown values (an `Other` variant or a
+        #[non_exhaustive] attribute) rather than failing to deserialize;
+        integer widths wide enough for the values the engine sends, especially
+        for bitmasks;
+        every public item and field documented;
+        derives are complete and correct (Debug, Clone, PartialEq where the type
+        contains no floats, Default on request types with optional fields).
+
+    - path: "src/search/**/*.rs"
+      instructions: >
+        Review for:
+        query and response types serialize to exactly the shape the engine
+        parses, including externally tagged query kinds and kebab-case names;
+        the SSE decoder buffers raw bytes rather than decoded text so multi-byte
+        UTF-8 split across chunk boundaries survives;
+        stream errors are surfaced as events rather than silently ending the
+        stream;
+        no client-side validation that duplicates or contradicts server
+        behaviour — the engine clamps `limit` rather than rejecting it.
+
+    - path: "src/{transport,config,client,error}.rs"
+      instructions: >
+        Review for:
+        API keys are never logged, formatted into errors, or exposed through
+        Debug — they are held in secrecy wrappers deliberately;
+        the error type distinguishes configuration, authentication, not-found,
+        validation, API, and network failures, and maps HTTP statuses correctly;
+        error messages are extracted from the engine's `{ status, data }`
+        envelope;
+        timeouts and TLS backends are configured explicitly, and streaming
+        requests are not bounded by the whole-request timeout;
+        no unwrap(), expect(), or panic!() on any path a caller can reach.
+
+    - path: "src/**/tests.rs"
+      instructions: >
+        Review for:
+        mocked responses carry the engine's `{ status, data }` envelope — a mock
+        that returns a bare payload will pass while the real client fails;
+        request assertions cover the body shape and the Authorization header,
+        not just the path and status;
+        each public method has at least one success and one failure test;
+        tests use wiremock and #[tokio::test], and assert on observable
+        behaviour rather than internals.
+
+    - path: "examples/**/*.rs"
+      instructions: >
+        Examples are compiled by CI, so treat them as real code. Review for:
+        they reflect current API usage and would actually run against a live
+        instance;
+        credentials come from the environment, never hardcoded;
+        errors are propagated with ? rather than unwrapped.
+
+    - path: ".github/workflows/**"
+      instructions: >
+        Review for:
+        actions pinned to a major version or a commit SHA;
+        no secret is echoed, interpolated into a log line, or exposed to a step
+        that does not need it;
+        the publish workflow stays idempotent — a merge that does not change the
+        crate version must be a no-op rather than a failure;
+        tags and releases are created only after a successful publish.
+
+  labeling_instructions:
+    - label: "breaking-change"
+      instructions: >
+        Apply when the PR changes a public API in a way that requires consumers
+        to update: altered function signatures, removed or renamed public items,
+        new required struct fields, new enum variants on a type that is not
+        #[non_exhaustive], or changed serialization of a public type.
+    - label: "new-api"
+      instructions: >
+        Apply when the PR adds public items — endpoint methods, types, or
+        modules — to the crate's public surface.
+    - label: "types"
+      instructions: "Apply when the PR primarily changes wire types under src/**/types.rs."
+    - label: "bug"
+      instructions: "Apply when the PR fixes incorrect behaviour in an existing feature."
+    - label: "enhancement"
+      instructions: "Apply when the PR improves existing functionality without breaking changes."
+    - label: "documentation"
+      instructions: "Apply when the PR updates README, CHANGELOG, PUBLISHING, examples, or rustdoc comments."
+    - label: "tests"
+      instructions: "Apply when the PR adds or modifies tests without changing library code."
+    - label: "dependencies"
+      instructions: "Apply when the PR changes Cargo.toml dependencies, features, or the MSRV."
+    - label: "chore"
+      instructions: "Apply when the PR makes build, tooling, or CI configuration changes."
+
+  finishing_touches:
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+
+  pre_merge_checks:
+    custom_checks:
+      - name: "No panics in library code"
+        instructions: >
+          Fail if the PR introduces unwrap(), expect(), panic!(), unreachable!(),
+          or slice indexing that can panic in non-test code under src/, unless
+          the call site has a comment explaining why it cannot fail.
+
+      - name: "Public items documented"
+        instructions: >
+          Fail if the PR adds public items without doc comments. Public fallible
+          functions also need an `# Errors` section, and endpoint methods should
+          name the engine route they call.
+
+      - name: "Version bumps ship a changelog entry"
+        instructions: >
+          Fail if the PR changes the `version` field in Cargo.toml without adding
+          a matching `## <version>` section to CHANGELOG.md. Merging to main
+          publishes the crate and builds the GitHub release body from that
+          section, so a missing entry produces an empty release.
+
+      - name: "Wire changes are covered by tests"
+        instructions: >
+          Fail if the PR adds or changes an endpoint method, request body, or
+          serde attribute on a wire type without a test asserting the resulting
+          JSON. Shape mismatches against the engine are invisible until runtime.
+
+  tools:
+    clippy:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    markdownlint:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    ast-grep:
+      essential_rules: true
+    biome:
+      enabled: false
+    eslint:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+code_generation:
+  docstrings:
+    language: "en-US"
+    path_instructions:
+      - path: "src/**/*.rs"
+        instructions: >
+          Use rustdoc comments. Open with a one-line summary in the third person
+          ("Returns the ...", "Creates a ..."), then detail as needed.
+          Include an `# Errors` section on every function returning Result,
+          naming the Error variants it can produce and what causes each.
+          Include `# Panics` only where a panic is genuinely reachable.
+          Add an `# Examples` section with a compiling doctest for public API
+          entry points; use `no_run` for anything that needs a live server.
+          Link to other items with intra-doc links rather than plain text.
+          For endpoint methods, name the HTTP method and path the call maps to.
+  unit_tests:
+    path_instructions:
+      - path: "src/**/*.rs"
+        instructions: >
+          Generate tests using #[tokio::test] with wiremock for anything that
+          makes a request, and plain #[test] for pure serde or builder logic.
+          Put endpoint tests in src/admin/tests.rs and type tests in the
+          #[cfg(test)] module of the file under test.
+          Mocked response bodies must carry the engine's `{ status, data }`
+          envelope, matching the existing `envelope()` helper.
+          Assert the request body and Authorization header, not only the path.
+          Cover at minimum one success and one failure path per public method.
