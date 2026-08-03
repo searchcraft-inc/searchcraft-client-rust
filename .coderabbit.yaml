@@ -14,8 +14,6 @@ reviews:
     drafts: false
     base_branches:
       - "development"
-      # Merges to main publish the crate, so those PRs get a look too.
-      - "main"
 
     ignore_title_keywords:
       - "WIP"
