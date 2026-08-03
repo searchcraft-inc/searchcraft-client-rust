@@ -100,7 +100,7 @@ impl QueryBuilder {
     /// Add a `field:IN [v1 v2 ...]` query.
     #[must_use]
     pub fn field_in<V: std::fmt::Display>(mut self, field: &str, values: &[V]) -> Self {
-        let vals: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+        let vals: Vec<String> = values.iter().map(ToString::to_string).collect();
         self.parts.push(format!("{field}:IN [{}]", vals.join(" ")));
         self
     }
@@ -199,6 +199,11 @@ impl QueryBuilder {
     }
 
     /// Build a complete [`SearchRequest`] from this builder.
+    ///
+    /// Request options the builder does not cover — `time_decay_field`,
+    /// `index_weighting`, `minimum_number_should_match` — can be set on the
+    /// returned value.
+    #[must_use]
     pub fn build_request(&self) -> SearchRequest {
         SearchRequest {
             query: QueryPayload::Single(self.build()),
@@ -206,6 +211,9 @@ impl QueryBuilder {
             offset: self.offset,
             order_by: self.order_by_field.clone(),
             sort: self.sort,
+            time_decay_field: None,
+            index_weighting: None,
+            minimum_number_should_match: None,
         }
     }
 }

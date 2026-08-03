@@ -5,7 +5,12 @@
 //! unexpected API responses.
 
 /// The error type returned by all Searchcraft client operations.
+///
+/// This enum is marked `#[non_exhaustive]`: match on the variants you handle
+/// and add a `_` arm, so that a future release adding a variant is not a
+/// breaking change for you.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The client configuration is invalid (e.g. missing URL or key).
     #[error("configuration error: {0}")]
@@ -54,18 +59,26 @@ pub enum Error {
 }
 
 impl Error {
-    /// Returns the HTTP status code, if one is associated with this error.
+    /// Returns the HTTP status code associated with this error, if any.
+    ///
+    /// [`Configuration`](Self::Configuration) and [`Network`](Self::Network)
+    /// errors occur before or instead of a response, so they have no status.
+    #[must_use]
     pub fn status(&self) -> Option<u16> {
         match self {
-            Self::Authentication { status, .. } => Some(*status),
+            Self::Authentication { status, .. } | Self::Api { status, .. } => Some(*status),
             Self::NotFound(_) => Some(404),
             Self::Validation { .. } => Some(400),
-            Self::Api { status, .. } => Some(*status),
             _ => None,
         }
     }
 
-    /// Returns `true` if the error indicates the request could be retried.
+    /// Returns `true` if retrying the request could plausibly succeed.
+    ///
+    /// True for network failures and for 429/5xx responses; false for
+    /// configuration, authentication, not-found, and validation errors, which
+    /// will fail the same way on a retry.
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Network(_) | Self::Http(_) => true,
@@ -79,10 +92,20 @@ impl Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Attempt to extract a human-readable message from a JSON error body.
+///
+/// The engine reports failures through the same `{ status, data }` envelope it
+/// uses for success, with the message as the `data` string. A `message` field
+/// is also accepted for proxies and older deployments.
 pub(crate) fn extract_error_message(body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(String::from))
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return body.to_string();
+    };
+
+    value
+        .get("data")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("message").and_then(serde_json::Value::as_str))
+        .map(String::from)
         .unwrap_or_else(|| body.to_string())
 }
 
@@ -143,22 +166,29 @@ mod tests {
     fn retryable_classification() {
         assert!(Error::Network("timeout".into()).is_retryable());
         assert!(Error::Api {
-            message: "".into(),
+            message: String::new(),
             status: 503,
             body: None
         }
         .is_retryable());
         assert!(!Error::Authentication {
-            message: "".into(),
+            message: String::new(),
             status: 401
         }
         .is_retryable());
-        assert!(!Error::NotFound("".into()).is_retryable());
-        assert!(!Error::Configuration("".into()).is_retryable());
+        assert!(!Error::NotFound(String::new()).is_retryable());
+        assert!(!Error::Configuration(String::new()).is_retryable());
     }
 
     #[test]
-    fn extract_message_from_json() {
+    fn extract_message_from_the_engine_envelope() {
+        // The engine reports errors through the same envelope as successes.
+        let body = r#"{"status":404,"data":"index does not exist"}"#;
+        assert_eq!(extract_error_message(body), "index does not exist");
+    }
+
+    #[test]
+    fn extract_message_from_a_message_field() {
         let body = r#"{"message": "index not found"}"#;
         assert_eq!(extract_error_message(body), "index not found");
     }

@@ -9,6 +9,8 @@
 //! ```
 
 use searchcraft::search::query::QueryBuilder;
+use searchcraft::search::types::SummaryStreamEvent;
+use searchcraft::search::StreamExt;
 use searchcraft::types::SortDirection;
 use searchcraft::SearchcraftClient;
 
@@ -35,7 +37,10 @@ async fn main() -> Result<(), searchcraft::Error> {
         response.data.count, response.data.time_taken
     );
     for hit in &response.data.hits {
-        println!("  {} (score: {:.3})", hit.document_id, hit.score);
+        let score = hit
+            .score
+            .map_or_else(|| "n/a".to_string(), |s| format!("{s:.3}"));
+        println!("  {} (score: {score})", hit.document_id);
     }
 
     // --- Boolean composition ---
@@ -68,6 +73,34 @@ async fn main() -> Result<(), searchcraft::Error> {
     println!("Found {} results", response.data.count);
     for hit in &response.data.hits {
         println!("  {}: {:?}", hit.document_id, hit.doc);
+    }
+
+    // --- Streaming AI summary (engine 0.10.0+) ---
+    // Only available when AI features are configured for the index.
+    let capabilities = client.get_index_capabilities("products").await?;
+    if capabilities.ai.enabled && capabilities.ai.search_summary_configured {
+        println!("\n=== AI summary for \"laptop\" ===");
+        let request = QueryBuilder::fuzzy()
+            .term("laptop")
+            .limit(5)
+            .build_request();
+        let mut stream = client.search_summary("products", &request).await?;
+
+        while let Some(event) = stream.next().await {
+            match event {
+                SummaryStreamEvent::Metadata(m) => {
+                    println!(
+                        "(summarizing {} results, cached: {})",
+                        m.results_count, m.cached
+                    );
+                }
+                SummaryStreamEvent::Delta(d) => print!("{}", d.content),
+                SummaryStreamEvent::Done(_) => println!(),
+                SummaryStreamEvent::Error(e) => eprintln!("\nsummary failed: {}", e.message),
+            }
+        }
+    } else {
+        println!("\n=== AI summary skipped: not configured for this index ===");
     }
 
     Ok(())

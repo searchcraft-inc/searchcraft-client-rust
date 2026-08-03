@@ -43,9 +43,27 @@ pub struct Config {
 }
 
 impl Config {
-    /// Create a new configuration, validating the endpoint URL.
+    /// Creates a new configuration, validating the endpoint URL.
     ///
-    /// At least one of `read_key` or `ingest_key` must be provided.
+    /// At least one of `read_key` or `ingest_key` must be provided. Admin
+    /// endpoints additionally need [`with_admin_key`](Self::with_admin_key).
+    ///
+    /// ```
+    /// # fn main() -> searchcraft::error::Result<()> {
+    /// use std::time::Duration;
+    /// use searchcraft::Config;
+    ///
+    /// let config = Config::new("https://my-instance.searchcraft.io", Some("sc-read"), None::<String>)?
+    ///     .with_timeout(Duration::from_secs(10))
+    ///     .with_header("X-Request-Source", "my-service");
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Configuration`] if `endpoint_url` cannot be parsed as
+    /// a URL, or if neither key is supplied.
     pub fn new(
         endpoint_url: &str,
         read_key: Option<impl Into<String>>,
@@ -93,12 +111,14 @@ impl Config {
         self
     }
 
-    /// Returns the base URL.
+    /// Returns the normalized base URL.
+    #[must_use]
     pub fn base_url(&self) -> &Url {
         &self.base_url
     }
 
-    /// Returns the configured timeout.
+    /// Returns the per-request timeout.
+    #[must_use]
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
@@ -113,7 +133,7 @@ impl Config {
             Operation::Admin => (&self.admin_key, "admin_key"),
         };
         key.as_ref()
-            .map(|s| s.expose_secret())
+            .map(ExposeSecret::expose_secret)
             .ok_or_else(|| Error::Configuration(format!("{label} is required for this operation")))
     }
 }

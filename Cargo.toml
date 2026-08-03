@@ -11,15 +11,18 @@ repository = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 homepage = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 keywords = ["searchcraft", "search", "api-client", "full-text-search", "sdk"]
 categories = ["api-bindings", "web-programming::http-client"]
-exclude = ["target/", ".git/"]
+# header.png is referenced by absolute URL from the README, so it renders on
+# crates.io and docs.rs without shipping ~1MB in every download.
+exclude = ["target/", ".git/", "header.png"]
 
 [dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 url = "2"
 secrecy = { version = "0.10", features = ["serde"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

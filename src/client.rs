@@ -33,10 +33,20 @@ pub struct SearchcraftClient {
 }
 
 impl SearchcraftClient {
-    /// Create a client from raw parameters.
+    /// Creates a client from an endpoint URL and up to two API keys.
     ///
-    /// This is a convenience wrapper around [`Config::new`] +
-    /// [`SearchcraftClient::from_config`].
+    /// A convenience wrapper around [`Config::new`] and
+    /// [`SearchcraftClient::from_config`]. Use [`Config`] directly when you
+    /// need an admin key, a custom timeout, or extra headers.
+    ///
+    /// The client is cheap to clone and holds a pooled connection, so build it
+    /// once and share it rather than creating one per request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Configuration`](crate::Error::Configuration) if
+    /// `endpoint_url` is not a valid URL, if neither key is supplied, or if the
+    /// underlying HTTP client cannot be built.
     pub fn new(
         endpoint_url: &str,
         read_key: Option<impl Into<String>>,
@@ -46,19 +56,20 @@ impl SearchcraftClient {
         Self::from_config(config)
     }
 
-    /// Create a client from a pre-built [`Config`].
+    /// Creates a client from a pre-built [`Config`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Configuration`](crate::Error::Configuration) if the
+    /// underlying HTTP client cannot be built — for example when a custom
+    /// header name or value is invalid.
     pub fn from_config(config: Config) -> error::Result<Self> {
         let transport = HttpTransport::new(config)?;
         Ok(Self { transport })
     }
 
-    /// Returns a reference to the underlying transport (for sub-API modules).
-    #[allow(dead_code)]
-    pub(crate) fn transport(&self) -> &HttpTransport {
-        &self.transport
-    }
-
-    /// Returns a reference to the client configuration.
+    /// Returns the configuration this client was built with.
+    #[must_use]
     pub fn config(&self) -> &Config {
         self.transport.config()
     }
