@@ -11,9 +11,17 @@ repository = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 homepage = "https://github.com/searchcraft-inc/searchcraft-client-rust"
 keywords = ["searchcraft", "search", "api-client", "full-text-search", "sdk"]
 categories = ["api-bindings", "web-programming::http-client"]
-# header.png is referenced by absolute URL from the README, so it renders on
-# crates.io and docs.rs without shipping ~1MB in every download.
-exclude = ["target/", ".git/", "header.png"]
+# Repository tooling that consumers of the crate have no use for. header.png in
+# particular is referenced by absolute URL from the README, so the banner still
+# renders on crates.io and docs.rs without shipping ~1MB in every download.
+exclude = [
+    "target/",
+    ".git/",
+    ".github/",
+    ".coderabbit.yaml",
+    "header.png",
+    "PUBLISHING.md",
+]
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
