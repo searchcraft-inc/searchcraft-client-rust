@@ -33,7 +33,7 @@ secrecy = { version = "0.10", features = ["serde"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 wiremock = "0.6"
 
 [features]

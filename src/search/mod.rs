@@ -142,6 +142,10 @@ impl SearchcraftClient {
     /// Unlike other requests, the configured timeout bounds only connection
     /// setup, so a slow generation is not cut short.
     ///
+    /// Dropping the stream cancels the request and closes the connection. To
+    /// stop early, `break` out of the loop and drop the stream; until then the
+    /// connection stays open.
+    ///
     /// # Examples
     ///
     /// ```no_run
