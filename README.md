@@ -176,6 +176,90 @@ setup for this endpoint, so a slow generation is never cut short.
 
 [`get_index_capabilities`]: https://docs.rs/searchcraft/latest/searchcraft/struct.SearchcraftClient.html#method.get_index_capabilities
 
+### Cancelling requests
+
+Every method returns an ordinary future, and `search_summary` an ordinary
+stream, so cancellation needs no extra API. Dropping the future or stream
+before it finishes aborts the request and closes its connection. The examples
+below use Tokio.
+
+To stop a summary early, drop the stream:
+
+```rust,no_run
+# async fn example() -> Result<(), searchcraft::Error> {
+# let client = searchcraft::SearchcraftClient::new("https://x.io", Some("k"), None::<String>)?;
+# let request = searchcraft::search::query::QueryBuilder::fuzzy().term("x").build_request();
+use searchcraft::search::types::SummaryStreamEvent;
+use searchcraft::search::StreamExt;
+
+let mut stream = client.search_summary("products", &request).await?;
+let mut summary = String::new();
+
+while let Some(event) = stream.next().await {
+    if let SummaryStreamEvent::Delta(d) = event {
+        summary.push_str(&d.content);
+        if summary.len() >= 500 {
+            break;
+        }
+    }
+}
+// `break` alone leaves the connection open until `stream` goes out of scope.
+drop(stream);
+# Ok(())
+# }
+```
+
+To give one call a deadline shorter than the configured timeout, wrap it in
+`tokio::time::timeout`. When the deadline passes, the request is dropped and
+you get `Elapsed` back. The configured timeout still applies on its own and
+reports `Error::Network`, so you can tell the two apart:
+
+```rust,no_run
+# async fn example() -> Result<(), searchcraft::Error> {
+# let client = searchcraft::SearchcraftClient::new("https://x.io", Some("k"), None::<String>)?;
+# let request = searchcraft::search::query::QueryBuilder::fuzzy().term("x").build_request();
+use std::time::Duration;
+
+let search = client.search_index::<serde_json::Value>("products", &request);
+match tokio::time::timeout(Duration::from_millis(300), search).await {
+    Ok(result) => println!("Found {} results", result?.data.count),
+    Err(_elapsed) => println!("Search took too long; cancelled"),
+}
+# Ok(())
+# }
+```
+
+For search-as-you-type, race each search against the next query with
+`tokio::select!`. If a newer query wins, the stale search is dropped, so a slow
+response to an old query can't overwrite the results of a new one:
+
+```rust,no_run
+# async fn example(
+#     client: searchcraft::SearchcraftClient,
+#     mut queries: tokio::sync::mpsc::Receiver<String>,
+# ) -> Result<(), searchcraft::Error> {
+# fn render<T>(_: T) {}
+use searchcraft::search::query::QueryBuilder;
+
+// `queries` receives the search box contents on each keystroke.
+let mut next = queries.recv().await;
+while let Some(text) = next {
+    let request = QueryBuilder::fuzzy().term(text).limit(10).build_request();
+    tokio::select! {
+        result = client.search_index::<serde_json::Value>("products", &request) => {
+            render(result?);
+            next = queries.recv().await;
+        }
+        newer = queries.recv() => next = newer,
+    }
+}
+# Ok(())
+# }
+```
+
+Cancelling stops the client from waiting. The server may still finish work it
+has already started.
+
 ### Index management
 
 ```rust,no_run
