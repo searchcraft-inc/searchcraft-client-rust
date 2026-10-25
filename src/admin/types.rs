@@ -48,7 +48,7 @@ pub enum FieldType {
     U64,
     /// Signed 64-bit integer field.
     I64,
-    /// Timestamp field. See [`FieldConfig::precision`] for the unit.
+    /// Timestamp field.
     Datetime,
     /// Nested JSON field. See [`FieldConfig::tokenizer`] and
     /// [`FieldConfig::expand_dots`] for the JSON-specific options.
@@ -81,15 +81,6 @@ pub struct FieldConfig {
     /// Whether documents must supply this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
-    /// Whether field norms are recorded, which the engine needs for length
-    /// normalization during scoring. Applies to numeric, boolean, and datetime
-    /// fields; defaults to whatever `indexed` is.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fieldnorms: Option<bool>,
-    /// For datetime fields: the timestamp unit — `"seconds"`,
-    /// `"milliseconds"`, `"microseconds"`, or `"nanoseconds"`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub precision: Option<String>,
     /// For json fields: how string values within the JSON are indexed —
     /// `"raw"` (exact, case-sensitive), `"lowercase"` (case-insensitive
     /// exact), or `"default"` (tokenized full-text). Defaults to `"raw"`.
@@ -112,8 +103,6 @@ impl FieldConfig {
             fast: None,
             multi: None,
             required: None,
-            fieldnorms: None,
-            precision: None,
             tokenizer: None,
             expand_dots: None,
         }
@@ -491,6 +480,12 @@ pub mod permissions {
 /// This type therefore wraps the raw mask and offers named presets plus
 /// [`contains`](Self::contains) for testing individual bits.
 ///
+/// The presets come in two kinds. Levels ([`READ`](Self::READ),
+/// [`INGEST`](Self::INGEST), [`ADMIN`](Self::ADMIN),
+/// [`SUPER_USER`](Self::SUPER_USER)) say what a key can change. Add-ons
+/// ([`AI`](Self::AI), [`ANALYTICS`](Self::ANALYTICS)) are features a key can
+/// use on top of its level. Combine them with `|`.
+///
 /// ```
 /// use searchcraft::admin::types::{permissions, AuthKeyPermission};
 ///
@@ -498,11 +493,14 @@ pub mod permissions {
 /// assert!(key.contains(permissions::MODIFY_DOCUMENTS));
 /// assert!(!key.contains(permissions::MODIFY_AUTH));
 ///
-/// // Or build an exact mask yourself.
-/// let custom = AuthKeyPermission::from_bits(
-///     permissions::SEARCH | permissions::READ_ANALYTICS,
-/// );
-/// assert!(custom.contains(permissions::READ_ANALYTICS));
+/// // A public key that can also request AI summaries.
+/// let public_ai = AuthKeyPermission::READ | AuthKeyPermission::AI;
+/// assert_eq!(public_ai.bits(), 65);
+///
+/// // Raw bits mix in too, and `|=` adds to an existing mask.
+/// let mut custom = AuthKeyPermission::READ | permissions::READ_ANALYTICS;
+/// custom |= AuthKeyPermission::AI;
+/// assert_eq!(custom.bits(), 321);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -534,7 +532,7 @@ impl AuthKeyPermission {
     );
 
     /// Every permission the engine defines, including AI features and
-    /// analytics.
+    /// analytics (mask `511`).
     pub const SUPER_USER: Self = Self(
         permissions::SEARCH
             | permissions::MODIFY_SYNONYMS
@@ -546,6 +544,12 @@ impl AuthKeyPermission {
             | permissions::LLM_EXPANDED_KEYWORD_SEARCH
             | permissions::READ_ANALYTICS,
     );
+
+    /// Add-on: AI summaries and semantic search (mask `64`).
+    pub const AI: Self = Self(permissions::LLM_RAG_SUMMARIES);
+
+    /// Add-on: read the measure dashboards (mask `256`).
+    pub const ANALYTICS: Self = Self(permissions::READ_ANALYTICS);
 
     /// Builds a permission mask from raw bits.
     #[must_use]
@@ -589,6 +593,26 @@ impl std::ops::BitOr for AuthKeyPermission {
 
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitOr<u64> for AuthKeyPermission {
+    type Output = Self;
+
+    fn bitor(self, rhs: u64) -> Self {
+        Self(self.0 | rhs)
+    }
+}
+
+impl std::ops::BitOrAssign for AuthKeyPermission {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl std::ops::BitOrAssign<u64> for AuthKeyPermission {
+    fn bitor_assign(&mut self, rhs: u64) {
+        self.0 |= rhs;
     }
 }
 
