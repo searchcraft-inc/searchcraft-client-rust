@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `AuthKeyPermission::AI` (`LLM_RAG_SUMMARIES`, mask `64`) and
+  `AuthKeyPermission::ANALYTICS` (`READ_ANALYTICS`, mask `256`). These are
+  add-ons, combined with a level using `|`, e.g.
+  `AuthKeyPermission::READ | AuthKeyPermission::AI` for a public key that can
+  request AI summaries.
+- `AuthKeyPermission` can be combined with raw `permissions` bits
+  (`AuthKeyPermission::READ | permissions::READ_ANALYTICS`), and supports `|=`
+  with either form.
+
+### Removed
+
+- **Breaking:** the `fieldnorms` and `precision` fields are removed from
+  `FieldConfig`. Both are engine internals that are not part of the documented
+  Searchcraft API, so the client no longer exposes them. Omitting them leaves
+  the engine's defaults in place, and existing indexes are unaffected. Configs
+  that still contain these keys continue to deserialize.
+
 ## 0.1.0
 
 Initial release. An async Rust client for the Searchcraft API, targeting
