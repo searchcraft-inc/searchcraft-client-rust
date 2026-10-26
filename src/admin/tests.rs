@@ -1588,6 +1588,37 @@ fn auth_key_permission_bit_tests() {
 }
 
 #[test]
+fn auth_key_permission_levels_combine_with_add_ons() {
+    use super::types::{permissions, AuthKeyPermission};
+
+    assert_eq!(AuthKeyPermission::AI.bits(), permissions::LLM_RAG_SUMMARIES);
+    assert_eq!(
+        AuthKeyPermission::ANALYTICS.bits(),
+        permissions::READ_ANALYTICS
+    );
+
+    let read_ai = AuthKeyPermission::READ | AuthKeyPermission::AI;
+    assert_eq!(read_ai.bits(), 65);
+    assert_eq!((read_ai | AuthKeyPermission::ANALYTICS).bits(), 321);
+    // Every add-on on top of admin still stops short of a super user.
+    assert_eq!(
+        (AuthKeyPermission::ADMIN | AuthKeyPermission::AI | AuthKeyPermission::ANALYTICS).bits(),
+        383
+    );
+    assert_eq!(AuthKeyPermission::SUPER_USER.bits(), 511);
+
+    // Raw bits mix in, and `|=` accepts either form.
+    assert_eq!(
+        AuthKeyPermission::READ | permissions::LLM_RAG_SUMMARIES,
+        read_ai
+    );
+    let mut key = AuthKeyPermission::READ;
+    key |= AuthKeyPermission::AI;
+    key |= permissions::READ_ANALYTICS;
+    assert_eq!(key.bits(), 321);
+}
+
+#[test]
 fn auth_key_deserializes_engine_payload() {
     use super::types::{AuthKey, AuthKeyPermission, AuthKeyStatus};
 
@@ -1638,12 +1669,29 @@ fn field_config_new_leaves_options_unset() {
 
     let overridden = FieldConfig {
         fast: Some(true),
-        precision: Some("seconds".into()),
+        indexed: Some(false),
         ..FieldConfig::new(FieldType::Datetime)
     };
     let json = serde_json::to_value(&overridden).unwrap();
     assert_eq!(json["fast"], true);
-    assert_eq!(json["precision"], "seconds");
+    assert_eq!(json["indexed"], false);
+}
+
+#[test]
+fn field_config_ignores_undocumented_engine_options() {
+    use super::types::{FieldConfig, FieldType};
+
+    // Indexes created with engine-internal options still report them; reading
+    // such a config must keep working even though the client doesn't expose them.
+    let config: FieldConfig = serde_json::from_value(serde_json::json!({
+        "type": "datetime",
+        "fast": true,
+        "fieldnorms": true,
+        "precision": "seconds",
+    }))
+    .unwrap();
+    assert_eq!(config.field_type, FieldType::Datetime);
+    assert_eq!(config.fast, Some(true));
 }
 
 #[test]
